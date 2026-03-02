@@ -7,8 +7,9 @@
 #define TRIG GPIO_NUM_11
 #define ECHO GPIO_NUM_12
 #define LOOP_DELAY_MS 1000
-#define OUT_OF_RANGE_SHORT 116 // around 2 cm
-#define OUT_OF_RANGE_LONG 23200  // around 4 cm
+#define OUT_OF_RANGE_SHORT 116
+#define OUT_OF_RANGE_LONG 23200
+bool echo_done = false;
 
 
 //----- Global variables -----//
@@ -32,7 +33,8 @@ void IRAM_ATTR echo_isr_handler(void* arg) {
     }
     else { //falling edge
         falling_edge_time = esp_timer_get_time();
-        echo_pulse_time = rising_edge_time-falling_edge_time;
+        echo_pulse_time = falling_edge_time-rising_edge_time;
+        echo_done = true;
     }
 }
 
@@ -71,4 +73,32 @@ void hc_sr04_init() {
 /***************************/
 void app_main() {
     hc_sr04_init();
+
+    while (true) {
+        //Set the Trigger high.
+        gpio_set_level(TRIG, 1);
+        //Start the ESP one-shot timer for 10us.
+        esp_timer_start_once(oneshot_timer, 10);
+
+        // Delay to allow Trigger and Echo to happen - with the help of an empty while loop
+        uint64_t wait_start = esp_timer_get_time();
+        while (!echo_done && (esp_timer_get_time() - wait_start < 30000)) { //30s
+            // busy wait
+        }
+
+        //Calculate and print the distance.
+        if (echo_done) {
+            if (echo_pulse_time < OUT_OF_RANGE_SHORT ||
+                echo_pulse_time > OUT_OF_RANGE_LONG) {
+                printf("Out of range distance\n");
+            } 
+            else {
+                float distance_cm = echo_pulse_time / 58.3f;
+                printf("Distance is %.2f cm\n", distance_cm);
+            }
+        } 
+
+        //Delay a loop time to make printed results readable.
+        vTaskDelay(pdMS_TO_TICKS(LOOP_DELAY_MS));
+    }
 }
